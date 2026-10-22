@@ -6,7 +6,7 @@
 
 - 在「设置 → QQ 工作区」里查看和修改 QQ 机器人的工作目录。
 - 支持系统文件夹选择器，也可以手动填写绝对路径；目录不存在时自动创建。
-- 应用后自动在 `~/.dsh/profiles/desktop/cordis.patch.yml` 的 `im-qqbot.config.cwd` 写入新目录，并创建/复用对应的 DSH 工作区。
+- 应用后自动在当前 DSH profile 的 `cordis.patch.yml` 的 `im-qqbot.config.cwd` 写入新目录，并创建/复用对应的 DSH 工作区（Desktop 和 dsh web 通用）。
 - 新产生的 QQ 会话会自动加入该工作区。
 - 应用时重置 QQ 会话 ID，下一条 QQ 消息在新目录新建会话。
 - 旧的 QQ 会话会移入 `~/.dsh/qq-workspace/trash/<时间戳>/`，而不是永久删除；其他对话与目录内文件不受影响。
@@ -24,7 +24,7 @@
 - 模型只能知道工作区名字（如 `qq-workspace`），看不到绝对路径、父目录、盘符、用户目录、操作系统或环境变量。系统提示只保留安全锁段（以及 prompt-studio 的自定义提示），DSH 的编码代理、Agent Teams、文件引用和环境段会被移除；工具结果中的路径会被替换。
 - 权限卡点：`read-only` 仍然是只读；`workspace-write` 仍然是工作区写入；`danger-full-access` 在 QQ 会话里按工作区写入语义执行。插件会优先把沙箱策略封装到工作区；如果宿主沙箱服务无法封装，所有允许的文件工具仍会经过工作区路径校验，权限选择器保持你原来的显示。此时真正的边界是工具守卫和路径校验，而不是宿主沙箱。
 - 只锁定 QQ 会话：你自己的普通会话不受影响。QQ 会话通过 `~/.dsh-qqbot/model-prefs.json` 的会话 ID、QQ 消息特征和父会话关系识别；每次系统提示装配、每步输入和每次工具调用前都会再核对一次偏好文件，降低“会话创建时尚未写入偏好而漏锁”的窗口。
-- **QQ 命令锁**：安全锁开启时，`/model` 只显示当前模型（不列出其他模型、不提供切换按钮），带参数的 `/model` 直接拒绝；`/preset` 只显示当前预设，带参数或 `reset/default` 的切换直接拒绝。模型和预设的切换请到 DSH Desktop 宿主端进行。命令解析异常、发送失败或无法识别会话时，命令按失败即阻止处理，不会回落到官方切换逻辑。
+- **QQ 命令锁**：安全锁开启时，`/model` 只显示当前模型（不列出其他模型、不提供切换按钮），带参数的 `/model` 直接拒绝；`/preset` 只显示当前预设，带参数或 `reset/default` 的切换直接拒绝。模型和预设的切换请到 DSH 宿主端（Desktop / Web）进行。命令解析异常、发送失败或无法识别会话时，命令按失败即阻止处理，不会回落到官方切换逻辑。
 - 设置页的安全锁卡片提供独立开关：总开关、核心保护（文件/工具/路径/环境）、禁止联网（网页搜索/打开网页，勾选=禁用）、禁止 QQ 切换模型、禁止 QQ 切换预设。可以单独控制。
 - 命令锁通过在 QQ SDK 的斜杠命令中间件中插入一个全局守卫实现；安装时会备份 `slash-command.js.qq-workspace.bak`。QQ SDK 更新后若补丁被覆盖，插件会在启动时提示重新安装/重启。
 - 与 `dsh-prompt-studio` 兼容：当提示词工作室的完整替换段存在时，不额外追加安全提示段；工具、路径和命令约束仍然生效。
@@ -37,7 +37,7 @@
 
 ## 安装
 
-从 GitHub 克隆或下载后，在 DSH Desktop 里：
+从 GitHub 克隆或下载后，在 DSH 宿主（DSH Desktop 或 dsh web）里：
 
 1. `git clone https://github.com/irislilymoon/dsh-qq-workspace.git`（或下载 ZIP 解压到任意目录）。
 2. 设置 → 插件 → 添加插件，填写本目录的绝对路径，例如：
@@ -46,14 +46,24 @@
 D:\Code\dsh-qq-workspace
 ```
 
-3. 启用插件并重启 DSH Desktop（宿主部分需要重启才生效）。
+3. 启用插件并重启 DSH 宿主（宿主部分需要重启才生效）。
 4. 进入 设置 → QQ 工作区，选择工作区目录并应用。
 
 也可以直接把本目录复制到新电脑，再按上面的「添加插件」路径安装；不需要 `node_modules`。
 
+## 兼容性（Desktop / Web）
+
+插件宿主端和设置页 client 都是 web 平台实现，DSH Desktop 与 `dsh web` 都可以安装使用。前提是**当前 profile 已经安装并启用官方 QQ Bot 插件**（`@tencent-connect/dsh-qqbot`），本插件只扩展它，不替代它。
+
+- 每个 profile 独立写入自己的 `cordis.patch.yml`；QQ SDK 命令补丁也只改当前 profile 的 `qqbot-nodejs`。Desktop 和 Web 可以分别安装本插件。
+- **官方 QQ Bot 的偏好与媒体目录是全局的**：`~/.dsh-qqbot/model-prefs.json`、`~/.dsh-qqbot/media`；本插件的安全锁状态 `~/.dsh/qq-workspace/security.json` 也是全局。因此**同一个 QQ 机器人同一时间只应在一个 profile 里运行**：在另一个 profile 应用工作区会重置全局会话 ID、重指向媒体联接，影响正在运行的那个。
+- 切换 profile 使用前：在目标 profile 里重新应用一次工作区并重启宿主。媒体联接会指向最后应用的工作区，旧工作区的 `qq-uploads/` 保留在原处。
+- Web 端通过公网或反向代理访问时：设置接口只接受本机地址、绑定地址和 DSH 对外 URL（`webApp` advertised URL）的主机名；反代需要保留原始 `Host`/`Origin`，否则设置页会返回 403。用自定义域名访问时，请把它配置为 advertised URL。若反代把应用挂在子路径下，`/qq-workspace` 路由也必须保持在同一前缀下。
+- 依赖 DSH 的 `workspaceRegistry`、`sessionPersistence`、`tools`、`sandboxPolicy` 服务；宿主组合缺少这些服务时插件不会加载。
+
 ## 行为说明
 
-- **旧 QQ 会话清理**：只处理 QQ 插件 `~/.dsh-qqbot/model-prefs.json` 里的会话，以及位于 Desktop profile 目录、且带有 QQ 消息特征的会话。其他工作区里的对话不会被识别或删除。
+- **旧 QQ 会话清理**：只处理 QQ 插件 `~/.dsh-qqbot/model-prefs.json` 里的会话，以及位于当前或旧 profile 目录、且带有 QQ 消息特征的会话。其他工作区里的对话不会被识别或删除。
 - **回收站**：会话目录与 `~/.dsh/storages/session_projcache` 对应缓存会一起移入回收站；确认无误后可手动清空 `~/.dsh/qq-workspace/trash/`。
 - **工作区归属**：DSH 的会话分组要求会话的 `cwd` 与工作区目录一致。已有会话的 `cwd` 是创建时固定的，所以切换目录时采用「新会话」而不是迁移旧会话。
 - **配置写入**：修改 `cordis.patch.yml` 会触发 QQ 插件热重载；旧配置备份为 `cordis.patch.yml.qq-workspace.bak`。
@@ -61,9 +71,9 @@ D:\Code\dsh-qq-workspace
 
 ## 新电脑安装
 
-1. 先安装 DSH Desktop 和官方 QQ Bot 插件，完成扫码或 AppID/AppSecret 绑定。QQ 凭据属于机器/宿主的配置，不要从旧电脑复制带密钥的文件。
+1. 先安装 DSH 宿主（DSH Desktop 或 dsh web）和官方 QQ Bot 插件，完成扫码或 AppID/AppSecret 绑定。QQ 凭据属于机器/宿主的配置，不要从旧电脑复制带密钥的文件。
 2. 把本插件目录 `dsh-qq-workspace` 复制到新电脑（只需源码目录，无需 `node_modules`）。
-3. 在 DSH Desktop 的「设置 → 插件 → 添加插件」里填入该目录的绝对路径，启用后重启 DSH。
+3. 在当前宿主的「设置 → 插件 → 添加插件」里填入该目录的绝对路径，启用后重启 DSH（Desktop 与 dsh web 的设置页都提供插件管理）。
 4. 打开「设置 → QQ 工作区」，填写你想用的工作区绝对路径并应用。插件会自动创建该目录、创建 `<工作区>/qq-uploads`，并把 `~/.dsh-qqbot/media` 联接过去。
 5. 需要长期保留上传时，打开「QQ 上传文件」卡片里的开关。该设置保存在本机 QQ 配置中，新电脑需要重新打开。
 6. 在 QQ 发一次 `/new` 后测试图片和文件。
@@ -112,8 +122,8 @@ node --test test/*.test.mjs
 - 不迁移旧 QQ 会话的上下文；切换目录后从新会话开始。
 - 文件发送（`qqbot_send_file`）仍然禁用；取消「禁止联网」只恢复 `web_search` / `web_fetch`，文件访问仍只限工作区。
 - `/model` 和 `/preset` 的拦截依赖 QQ SDK 的命令补丁；如果 SDK 更新覆盖了补丁，设置页会显示警告，重新应用补丁后需要重启 DSH。
-- 模型/预设切换只能在 DSH Desktop 宿主端进行；QQ 侧只显示当前值。
-- 依赖 DSH Desktop 的 `workspaceRegistry`、`sessionPersistence`、`tools`、`sandboxPolicy` 服务；Web/CLI 组合若缺少这些服务，插件不会加载。
+- 模型/预设切换只能在 DSH 宿主端（Desktop / Web）进行；QQ 侧只显示当前值。
+- 依赖 DSH 的 `workspaceRegistry`、`sessionPersistence`、`tools`、`sandboxPolicy` 服务；如果某个宿主组合缺少这些服务，插件不会加载。
 
 ## License
 

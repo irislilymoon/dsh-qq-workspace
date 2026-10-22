@@ -291,9 +291,24 @@ function trustedRequest(ctx, req) {
   if (hostUrl === null) return false;
   const hostname = hostUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   const allowed = new Set(['127.0.0.1', '::1', 'localhost']);
-  const bound = service(ctx, 'webServer')?.host;
-  if (typeof bound === 'string' && bound.trim() !== '') {
-    allowed.add(bound.trim().toLowerCase().replace(/^\[|\]$/g, ''));
+  const addHost = (value) => {
+    if (typeof value !== 'string' || value.trim() === '') return;
+    try {
+      const parsed = new URL(value);
+      const name = parsed.hostname.toLowerCase().replace(/^\[|\]$/g, '');
+      if (name !== '') allowed.add(name);
+    } catch {
+    }
+  };
+  const webServer = service(ctx, 'webServer');
+  addHost(webServer?.host);
+  try {
+    addHost(webServer?.getOrigin?.());
+  } catch {
+  }
+  try {
+    addHost(service(ctx, 'webApp')?.getAdvertisedUrl?.());
+  } catch {
   }
   if (!allowed.has(hostname)) return false;
   const site = req.headers['sec-fetch-site'];

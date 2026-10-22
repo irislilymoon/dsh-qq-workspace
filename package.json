@@ -2,7 +2,7 @@
   "name": "dsh-qq-workspace",
   "version": "0.1.0",
   "private": true,
-  "description": "QQ bot working directory, workspace grouping, QQ upload routing and a security lock for DSH Desktop",
+  "description": "QQ bot working directory, workspace grouping, upload routing and a QQ-session security lock for DSH (Desktop and Web)",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -29,7 +29,8 @@
     "qqbot",
     "qq",
     "workspace",
-    "security"
+    "security",
+    "dsh-web"
   ],
   "engines": {
     "node": ">=20"

@@ -345,7 +345,7 @@ window.__ModuleLoader__.load({
             'div',
             { style: S.row },
             h('span', { style: S.label }, 'QQ 插件配置目录'),
-            h('span', { style: S.value }, configured !== '' ? configured : '未设置（使用桌面 profile 目录）'),
+            h('span', { style: S.value }, configured !== '' ? configured : '未设置（使用当前 profile 目录）'),
           ),
           h(
             'div',
@@ -435,7 +435,7 @@ window.__ModuleLoader__.load({
               'span',
               { style: S.switchText },
               h('span', { style: S.switchLabel }, '禁止 QQ 切换模型'),
-              h('span', { style: S.switchHint }, '/model 只显示当前模型，不列出其他模型；切换请到 DSH Desktop 宿主端。'),
+              h('span', { style: S.switchHint }, '/model 只显示当前模型，不列出其他模型；切换请到 DSH 宿主端（Desktop / Web）。'),
             ),
           ),
           h(
@@ -452,7 +452,7 @@ window.__ModuleLoader__.load({
               'span',
               { style: S.switchText },
               h('span', { style: S.switchLabel }, '禁止 QQ 切换预设'),
-              h('span', { style: S.switchHint }, '/preset 只显示当前预设；切换请到 DSH Desktop 宿主端。'),
+              h('span', { style: S.switchHint }, '/preset 只显示当前预设；切换请到 DSH 宿主端（Desktop / Web）。'),
             ),
           ),
           security?.enabled === true && security?.core !== false

@@ -351,19 +351,19 @@ export class SecurityLock {
       const args = String(rest ?? '').trim();
       if (command === 'model') {
         if (args !== '') {
-          await this.sendQQCommand(ctx, '安全锁：QQ 会话禁止切换模型。请在 DSH Desktop 中切换模型。');
+          await this.sendQQCommand(ctx, '安全锁：QQ 会话禁止切换模型。请在 DSH 宿主端（Desktop / Web）中切换模型。');
           return true;
         }
         const model = this.currentModel(scope, peerId);
-        await this.sendQQCommand(ctx, `### 🤖 模型配置\n\n**当前模型:** ${model}\n\n安全锁已开启：只显示当前模型，切换模型请在 DSH Desktop 中进行。`);
+        await this.sendQQCommand(ctx, `### 🤖 模型配置\n\n**当前模型:** ${model}\n\n安全锁已开启：只显示当前模型，切换模型请在 DSH 宿主端（Desktop / Web）中进行。`);
         return true;
       }
       if (args !== '') {
-        await this.sendQQCommand(ctx, '安全锁：QQ 会话禁止切换 preset。请在 DSH Desktop 中切换 preset。');
+        await this.sendQQCommand(ctx, '安全锁：QQ 会话禁止切换 preset。请在 DSH 宿主端（Desktop / Web）中切换 preset。');
         return true;
       }
       const preset = this.currentPreset(scope, peerId);
-      await this.sendQQCommand(ctx, `### 🧩 Agent Preset\n\n**当前:** ${preset}\n\n安全锁已开启：只显示当前 preset，切换 preset 请在 DSH Desktop 中进行。`);
+      await this.sendQQCommand(ctx, `### 🧩 Agent Preset\n\n**当前:** ${preset}\n\n安全锁已开启：只显示当前 preset，切换 preset 请在 DSH 宿主端（Desktop / Web）中进行。`);
       return true;
     } catch (error) {
       this.deps.log(`[dsh-qq-workspace] 拦截 QQ 命令失败（已按故障安全策略阻止命令执行）：${error?.message ?? String(error)}`, 'warn');
