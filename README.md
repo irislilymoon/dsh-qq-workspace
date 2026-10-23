@@ -164,6 +164,7 @@ node --test test/*.test.mjs
 - `SOUL.md` / `MEMORY.md` 每轮注入会消耗 Token，文件完整内容对 QQ 会话可见，不要放密钥、密码或身份证件。使用 `complete: true` 完整系统提示的 agent preset 会覆盖注入段。
 - 上下文管理依赖 DSH `compaction-basic` 的 `compactRegion` 接口；DSH 大版本更新后若接口变化，设置页会显示不可用，需要更新插件。
 - `~/.dsh/qq-workspace/context.json` 是全局设置，多个 profile 共用；工作区路径本身仍按每个 profile 的 `cordis.patch.yml` 配置。
+- QQ 群聊中**不 @ 机器人**的消息，需要群主在手机 QQ 里为该机器人开启「接收全部群消息」后平台才会推送（`GROUP_MESSAGE_CREATE`）。该开关按机器人、按群单独设置，开放平台后台看不到，插件无法代为开启。它和 `requireMention` 无关：关掉 `requireMention` 只是不在插件层拦截，平台不推照样收不到。
 
 ## License
 
