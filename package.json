@@ -1,8 +1,8 @@
 {
   "name": "dsh-qq-workspace",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
-  "description": "QQ bot working directory, workspace grouping, upload routing and a QQ-session security lock for DSH (Desktop and Web)",
+  "description": "QQ bot working directory, workspace grouping, upload routing, context management, long-term memory and a QQ-session security lock for DSH (Desktop and Web)",
   "type": "module",
   "main": "index.js",
   "exports": {
@@ -13,6 +13,7 @@
   "files": [
     "index.js",
     "security.js",
+    "context.js",
     "qq-commands.js",
     "client.js",
     "cordis.patch.yml",
@@ -30,7 +31,11 @@
     "qq",
     "workspace",
     "security",
-    "dsh-web"
+    "dsh-web",
+    "compaction",
+    "context",
+    "memory",
+    "long-term-memory"
   ],
   "engines": {
     "node": ">=20"
@@ -47,5 +52,13 @@
         "@deepseek-ai/dsh-client-ui-primitives"
       ]
     }
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/irislilymoon/dsh-qq-workspace.git"
+  },
+  "bugs": {
+    "url": "https://github.com/irislilymoon/dsh-qq-workspace/issues"
+  },
+  "homepage": "https://github.com/irislilymoon/dsh-qq-workspace#readme"
 }

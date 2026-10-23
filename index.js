@@ -19,6 +19,7 @@ import {
 import { homedir } from 'node:os';
 import { basename, dirname, extname, isAbsolute, join, relative, resolve, sep } from 'node:path';
 import { createSecurityLock } from './security.js';
+import { createContextManager } from './context.js';
 import { commandPatchState, ensureCommandPatch, installCommandHook } from './qq-commands.js';
 
 export const name = 'qq-workspace';
@@ -28,7 +29,7 @@ const PLUGIN_NAME = 'dsh-qq-workspace';
 const ROUTE = '/qq-workspace';
 const QQ_PLUGIN_ID = 'im-qqbot';
 const QQ_PACKAGE = '@tencent-connect/dsh-qqbot';
-const MAX_BODY_BYTES = 64 * 1024;
+const MAX_BODY_BYTES = 512 * 1024;
 const SESSION_ID_RE = /^[A-Za-z0-9._-]{6,128}$/;
 const API_HEADER = 'x-dsh-qq-workspace';
 const QQ_MARKER_RE = /(?:^|\n)\s*\[[^\]\n]{1,120}\]\s*<@[0-9A-Z]{8,}>|\(@you\)|\.dsh-qqbot[\\/]media[\\/]/i;
@@ -38,6 +39,8 @@ const QQ_MEDIA_ROOT = join(homedir(), '.dsh-qqbot', 'media');
 let cleanupTimer = null;
 let cleanupInFlight = null;
 let securityLock = null;
+let contextManager = null;
+let contextInitError = '';
 let commandPatchChanged = false;
 let mediaLinkState = { dir: QQ_MEDIA_DIR, linked: false, error: '' };
 
@@ -58,9 +61,14 @@ function log(ctx, message, level = 'info') {
 
 function service(ctx, key) {
   try {
-    return typeof ctx.get === 'function' ? (ctx.get(key) ?? ctx[key]) : ctx[key];
-  } catch {
+    if (typeof ctx.get === 'function') return ctx.get(key) ?? ctx[key];
     return ctx[key];
+  } catch {
+    try {
+      return ctx[key];
+    } catch {
+      return undefined;
+    }
   }
 }
 
@@ -1048,6 +1056,8 @@ async function buildState(ctx) {
     security: securityLock === null
       ? { enabled: false, lockedCount: 0, workspace: 'workspace', guardReady: false }
       : securityLock.state(),
+    context: contextManager === null ? null : contextManager.state(),
+    contextError: contextManager === null ? contextInitError : '',
     commandPatch: {
       patched: commandPatch.patched,
       changed: commandPatchChanged,
@@ -1112,6 +1122,64 @@ async function handleApply(ctx, req, res) {
   });
 }
 
+async function handleContext(ctx, req, res) {
+  if (contextManager === null) throw httpError(503, '上下文管理尚未加载');
+  if (!isJsonRequest(req)) throw httpError(415, '请求体必须是 application/json');
+  const body = await readJsonBody(req);
+  const patch = {};
+  for (const key of ['enabled', 'percentEnabled', 'turnsEnabled']) {
+    if (Object.hasOwn(body, key)) {
+      if (typeof body[key] !== 'boolean') throw httpError(400, `${key} 必须是布尔值`);
+      patch[key] = body[key];
+    }
+  }
+  for (const key of ['percent', 'turns', 'retainPercent']) {
+    if (Object.hasOwn(body, key)) {
+      if (typeof body[key] !== 'number' || !Number.isFinite(body[key])) {
+        throw httpError(400, `${key} 必须是数字`);
+      }
+      patch[key] = body[key];
+    }
+  }
+  if (Object.hasOwn(body, 'retainMode')) {
+    if (body.retainMode !== 'default' && body.retainMode !== 'custom') {
+      throw httpError(400, 'retainMode 必须是 default 或 custom');
+    }
+    patch.retainMode = body.retainMode;
+  }
+  if (Object.keys(patch).length === 0) throw httpError(400, '没有可更新的上下文设置');
+  const state = contextManager.configure(patch);
+  log(ctx, `[${PLUGIN_NAME}] 上下文管理设置已更新`);
+  sendJson(res, 200, { ok: true, context: state });
+}
+
+async function handleFileSettings(ctx, req, res, kind, setting, label) {
+  if (contextManager === null) throw httpError(503, '上下文管理尚未加载');
+  if (!isJsonRequest(req)) throw httpError(415, '请求体必须是 application/json');
+  const body = await readJsonBody(req);
+  if (!Object.hasOwn(body, 'enabled') && !Object.hasOwn(body, 'content')) {
+    throw httpError(400, `没有可更新的${label}设置`);
+  }
+  if (Object.hasOwn(body, 'enabled')) {
+    if (typeof body.enabled !== 'boolean') throw httpError(400, 'enabled 必须是布尔值');
+    contextManager.configure({ [setting]: body.enabled });
+  }
+  if (Object.hasOwn(body, 'content')) {
+    if (typeof body.content !== 'string') throw httpError(400, 'content 必须是字符串');
+    contextManager.writeFile(kind, body.content);
+  }
+  log(ctx, `[${PLUGIN_NAME}] ${label}设置已更新`);
+  sendJson(res, 200, { ok: true, context: contextManager.state() });
+}
+
+async function handleSoul(ctx, req, res) {
+  return handleFileSettings(ctx, req, res, 'soul', 'soulEnabled', '人格 SOUL.md');
+}
+
+async function handleMemory(ctx, req, res) {
+  return handleFileSettings(ctx, req, res, 'memory', 'memoryEnabled', '长期记忆 MEMORY.md');
+}
+
 async function handleRoute(ctx, req, res) {
   const method = (req.method ?? 'GET').toUpperCase();
   const url = new URL(req.url ?? '/', 'http://localhost');
@@ -1154,6 +1222,21 @@ async function handleRoute(ctx, req, res) {
       const state = securityLock.configure(patch);
       log(ctx, `[${PLUGIN_NAME}] 安全锁设置已更新：${JSON.stringify(patch)}`);
       sendJson(res, 200, { ok: true, security: state });
+      return;
+    }
+    if (url.pathname === `${ROUTE}/context` && method === 'POST') {
+      if (!isJsonRequest(req)) throw httpError(415, '请求体必须是 application/json');
+      await handleContext(ctx, req, res);
+      return;
+    }
+    if (url.pathname === `${ROUTE}/soul` && method === 'POST') {
+      if (!isJsonRequest(req)) throw httpError(415, '请求体必须是 application/json');
+      await handleSoul(ctx, req, res);
+      return;
+    }
+    if (url.pathname === `${ROUTE}/memory` && method === 'POST') {
+      if (!isJsonRequest(req)) throw httpError(415, '请求体必须是 application/json');
+      await handleMemory(ctx, req, res);
       return;
     }
     sendJson(res, 404, { ok: false, message: `没有这条路由：${method} ${url.pathname}` });
@@ -1212,6 +1295,35 @@ export async function apply(ctx) {
   ctx.effect(() => () => {
     if (securityLock === lock) securityLock = null;
   }, `${PLUGIN_NAME}: security ref`);
+
+  try {
+    const manager = createContextManager(ctx, {
+      profileInfo,
+      readQQConfig,
+      readQQPrefs,
+      writeFileAtomic,
+      canonical,
+      normPath,
+      service: (key) => service(ctx, key),
+      sanitizeText: (text) => {
+        try {
+          return typeof lock.makeSanitizer === 'function' ? lock.makeSanitizer()(text) : text;
+        } catch {
+          return text;
+        }
+      },
+      log: (message, level) => log(ctx, message, level),
+    });
+    manager.install();
+    contextManager = manager;
+    contextInitError = '';
+    ctx.effect(() => () => {
+      if (contextManager === manager) contextManager = null;
+    }, `${PLUGIN_NAME}: context ref`);
+  } catch (error) {
+    contextInitError = error?.message ?? String(error);
+    log(ctx, `[${PLUGIN_NAME}] 上下文管理初始化失败：${contextInitError}`, 'warn');
+  }
 
   installCommandHook(ctx, lock);
   const patchResult = ensureCommandPatch(profileInfo(ctx), (message, level) => log(ctx, message, level));

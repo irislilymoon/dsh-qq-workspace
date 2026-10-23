@@ -64,6 +64,32 @@ window.__ModuleLoader__.load({
         background: 'var(--dsw-alias-bg-layer-1, transparent)',
         border: '0.5px solid var(--dsw-alias-border-l3, rgba(127,127,127,0.4))',
       },
+      select: {
+        fontFamily: 'inherit',
+        fontSize: 13,
+        lineHeight: '20px',
+        height: 34,
+        padding: '0 8px',
+        borderRadius: 8,
+        boxSizing: 'border-box',
+        outline: 'none',
+        color: 'var(--dsw-alias-label-primary, inherit)',
+        background: 'var(--dsw-alias-bg-layer-1, transparent)',
+        border: '0.5px solid var(--dsw-alias-border-l3, rgba(127,127,127,0.4))',
+      },
+      textarea: {
+        font: '13px/20px ui-monospace, SFMono-Regular, Menlo, Consolas, monospace',
+        padding: '8px 10px',
+        borderRadius: 8,
+        boxSizing: 'border-box',
+        width: '100%',
+        minHeight: 140,
+        resize: 'vertical',
+        outline: 'none',
+        color: 'var(--dsw-alias-label-primary, inherit)',
+        background: 'var(--dsw-alias-bg-layer-1, transparent)',
+        border: '0.5px solid var(--dsw-alias-border-l3, rgba(127,127,127,0.4))',
+      },
       button: {
         font: 'inherit',
         fontSize: 13,
@@ -181,12 +207,76 @@ window.__ModuleLoader__.load({
       return h('div', { style, role: props.kind === 'error' ? 'alert' : 'status' }, props.text);
     }
 
+    function PersistentFileCard(props) {
+      const { title, description, fileState, draft, busy, toggleHint, placeholder, onToggle, onDraft, onSave, onRefresh } = props;
+      if (fileState === null || fileState === undefined) return null;
+      return h(
+        'div',
+        { style: S.card },
+        h('h3', { style: S.h3 }, title),
+        h('p', { style: S.sub }, description),
+        h(
+          'label',
+          { style: S.switchRow },
+          h('input', {
+            type: 'checkbox',
+            checked: fileState.enabled === true,
+            disabled: busy,
+            onChange: (event) => void onToggle(event.target.checked),
+            style: { marginTop: 2, flex: 'none' },
+          }),
+          h(
+            'span',
+            { style: S.switchText },
+            h('span', { style: S.switchLabel }, fileState.enabled === true ? `${title}：已开启` : `${title}：已关闭`),
+            h('span', { style: S.switchHint }, toggleHint),
+          ),
+        ),
+        h(
+          'div',
+          { style: S.row },
+          h('span', { style: S.label }, '文件'),
+          h('span', { style: S.value }, fileState.exists ? `${fileState.file} · ${fileState.size} 字节` : '尚未创建（开启后自动创建模板）'),
+        ),
+        fileState.error ? h(Banner, { kind: 'warn', text: fileState.error }) : null,
+        fileState.enabled === true && fileState.exists !== true && !fileState.error
+          ? h(Banner, { kind: 'warn', text: `${fileState.file} 尚未创建；保存内容或等模型写入后会创建。` })
+          : null,
+        h('textarea', {
+          style: S.textarea,
+          value: draft ?? fileState.content ?? '',
+          spellCheck: false,
+          disabled: busy,
+          placeholder,
+          onChange: (event) => onDraft(event.target.value),
+        }),
+        h(
+          'div',
+          { style: { ...S.row, justifyContent: 'space-between' } },
+          h('span', { style: S.empty }, `注入上限 ${fileState.injectedLimit} 字符；编辑上限 ${fileState.editLimit} 字符。`),
+          h(
+            'div',
+            { style: S.row },
+            h(ActionButton, { onClick: onRefresh, disabled: busy }, '刷新'),
+            h(ActionButton, { variant: 'primary', onClick: onSave, disabled: busy }, busy ? '保存中…' : '保存'),
+          ),
+        ),
+        h('p', { style: S.empty }, '不要写入密钥、密码或一次性细节。'),
+      );
+    }
+
     function SettingsPage() {
       const [state, setState] = React.useState(null);
       const [path, setPath] = React.useState('');
       const [busy, setBusy] = React.useState(false);
       const [securityBusy, setSecurityBusy] = React.useState(false);
       const [mediaBusy, setMediaBusy] = React.useState(false);
+      const [contextBusy, setContextBusy] = React.useState(false);
+      const [memoryBusy, setMemoryBusy] = React.useState(false);
+      const [soulBusy, setSoulBusy] = React.useState(false);
+      const [contextForm, setContextForm] = React.useState(null);
+      const [memoryDraft, setMemoryDraft] = React.useState(null);
+      const [soulDraft, setSoulDraft] = React.useState(null);
       const [error, setError] = React.useState('');
       const [notice, setNotice] = React.useState('');
 
@@ -213,6 +303,31 @@ window.__ModuleLoader__.load({
       React.useEffect(() => {
         void load(false);
       }, [load]);
+
+      const context = state?.context ?? null;
+      const memory = context?.memory ?? null;
+      const soul = context?.soul ?? null;
+
+      React.useEffect(() => {
+        if (context === null || contextForm !== null) return;
+        setContextForm({
+          enabled: context.enabled === true,
+          percentEnabled: context.percentEnabled !== false,
+          percent: context.percent ?? 80,
+          turnsEnabled: context.turnsEnabled === true,
+          turns: context.turns ?? 20,
+          retainMode: context.retainMode === 'custom' ? 'custom' : 'default',
+          retainPercent: context.retainPercent ?? 15,
+        });
+      }, [context, contextForm]);
+
+      React.useEffect(() => {
+        if (memory !== null && memoryDraft === null) setMemoryDraft(memory.content ?? '');
+      }, [memory, memoryDraft]);
+
+      React.useEffect(() => {
+        if (soul !== null && soulDraft === null) setSoulDraft(soul.content ?? '');
+      }, [soul, soulDraft]);
 
       const pick = async () => {
         setError('');
@@ -270,6 +385,148 @@ window.__ModuleLoader__.load({
         } finally {
           setMediaBusy(false);
         }
+      };
+
+      const updateContextForm = (patch) => {
+        setContextForm((previous) => ({ ...(previous ?? {}), ...patch }));
+        setNotice('');
+      };
+
+      const saveContext = async () => {
+        if (contextBusy || contextForm === null) return;
+        setContextBusy(true);
+        setError('');
+        setNotice('');
+        try {
+          const numberOr = (value, fallback) => {
+            const parsed = Number(value);
+            return Number.isFinite(parsed) ? parsed : fallback;
+          };
+          const payload = {
+            ...contextForm,
+            percent: numberOr(contextForm.percent, 80),
+            turns: numberOr(contextForm.turns, 20),
+            retainPercent: numberOr(contextForm.retainPercent, 15),
+          };
+          const result = await api('/context', {
+            method: 'POST',
+            body: JSON.stringify(payload),
+          });
+          const next = result?.context ?? null;
+          if (next !== null) {
+            setContextForm({
+              enabled: next.enabled === true,
+              percentEnabled: next.percentEnabled !== false,
+              percent: next.percent ?? 80,
+              turnsEnabled: next.turnsEnabled === true,
+              turns: next.turns ?? 20,
+              retainMode: next.retainMode === 'custom' ? 'custom' : 'default',
+              retainPercent: next.retainPercent ?? 15,
+            });
+          }
+          setNotice('上下文管理设置已保存。');
+          await load(true);
+        } catch (problem) {
+          setError(`保存上下文设置失败：${problem?.message ?? String(problem)}`);
+        } finally {
+          setContextBusy(false);
+        }
+      };
+
+      const updateMemoryEnabled = async (enabled) => {
+        if (memoryBusy) return;
+        setMemoryBusy(true);
+        setError('');
+        setNotice('');
+        try {
+          await api('/memory', {
+            method: 'POST',
+            body: JSON.stringify({ enabled }),
+          });
+          setNotice(enabled ? '长期记忆已开启。' : '长期记忆已关闭；MEMORY.md 不会被删除。');
+          setMemoryDraft(null);
+          await load(true);
+        } catch (problem) {
+          setError(`设置长期记忆失败：${problem?.message ?? String(problem)}`);
+        } finally {
+          setMemoryBusy(false);
+        }
+      };
+
+      const saveMemory = async () => {
+        if (memoryBusy) return;
+        setMemoryBusy(true);
+        setError('');
+        setNotice('');
+        try {
+          const result = await api('/memory', {
+            method: 'POST',
+            body: JSON.stringify({ content: memoryDraft ?? '' }),
+          });
+          const next = result?.context?.memory ?? null;
+          setMemoryDraft(next?.content ?? memoryDraft ?? '');
+          setNotice('长期记忆已保存。');
+          await load(true);
+        } catch (problem) {
+          setError(`保存长期记忆失败：${problem?.message ?? String(problem)}`);
+        } finally {
+          setMemoryBusy(false);
+        }
+      };
+
+      const refreshMemory = async () => {
+        setMemoryDraft(null);
+        setNotice('');
+        setError('');
+        await load(true);
+      };
+
+      const updateSoulEnabled = async (enabled) => {
+        if (soulBusy) return;
+        setSoulBusy(true);
+        setError('');
+        setNotice('');
+        try {
+          await api('/soul', {
+            method: 'POST',
+            body: JSON.stringify({ enabled }),
+          });
+          setNotice(enabled ? '人格 SOUL.md 已开启。' : '人格 SOUL.md 已关闭；文件不会被删除。');
+          setSoulDraft(null);
+          await load(true);
+        } catch (problem) {
+          setError(`设置人格 SOUL.md 失败：${problem?.message ?? String(problem)}`);
+        } finally {
+          setSoulBusy(false);
+        }
+      };
+
+      const saveSoul = async () => {
+        if (soulBusy) return;
+        setSoulBusy(true);
+        setError('');
+        setNotice('');
+        try {
+          const result = await api('/soul', {
+            method: 'POST',
+            body: JSON.stringify({ content: soulDraft ?? '' }),
+          });
+          const next = result?.context?.soul ?? null;
+          setSoulDraft(next?.content ?? soulDraft ?? '');
+          setNotice('人格 SOUL.md 已保存。');
+          await load(true);
+        } catch (problem) {
+          setError(`保存人格 SOUL.md 失败：${problem?.message ?? String(problem)}`);
+        } finally {
+          setSoulBusy(false);
+        }
+      };
+
+      const refreshSoul = async () => {
+        setSoulDraft(null);
+        setNotice('');
+        setError('');
+        await load(true);
       };
 
       const apply = async () => {
@@ -505,6 +762,181 @@ window.__ModuleLoader__.load({
             ? h(Banner, { kind: 'notice', text: '上传文件会一直保留在 qq-uploads/；记得定期手动清理不需要的文件。' })
             : null,
         ),
+
+        h(
+          'div',
+          { style: S.card },
+          h('h3', { style: S.h3 }, '上下文管理'),
+          h('p', { style: S.sub }, '只作用于 QQ 工作区会话；你自己的普通会话继续使用 DSH 内建压缩。'),
+          h(
+            'label',
+            { style: S.switchRow },
+            h('input', {
+              type: 'checkbox',
+              checked: contextForm?.enabled === true,
+              disabled: contextBusy || contextForm === null,
+              onChange: (event) => updateContextForm({ enabled: event.target.checked }),
+              style: { marginTop: 2, flex: 'none' },
+            }),
+            h(
+              'span',
+              { style: S.switchText },
+              h('span', { style: S.switchLabel }, '启用自动上下文压缩'),
+              h('span', { style: S.switchHint }, '满足下面任一触发条件后，在下一次模型请求前把较早的完整轮次总结成一条摘要。'),
+            ),
+          ),
+          h(
+            'div',
+            { style: { ...S.row, paddingLeft: 22 } },
+            h(
+              'label',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 } },
+              h('input', {
+                type: 'checkbox',
+                checked: contextForm?.percentEnabled === true,
+                disabled: contextBusy || contextForm?.enabled !== true,
+                onChange: (event) => updateContextForm({ percentEnabled: event.target.checked }),
+                style: { flex: 'none' },
+              }),
+              '按上下文比例触发',
+            ),
+            h('input', {
+              type: 'number',
+              min: 1,
+              max: 100,
+              step: 1,
+              style: { ...S.input, width: 96, flex: 'none' },
+              value: contextForm?.percent ?? 80,
+              disabled: contextBusy || contextForm?.enabled !== true || contextForm?.percentEnabled !== true,
+              onChange: (event) => updateContextForm({ percent: event.target.value }),
+            }),
+            h('span', { style: S.label }, '% 模型上下文窗口'),
+          ),
+          h(
+            'div',
+            { style: { ...S.row, paddingLeft: 22 } },
+            h(
+              'label',
+              { style: { display: 'flex', alignItems: 'center', gap: 6, fontSize: 13 } },
+              h('input', {
+                type: 'checkbox',
+                checked: contextForm?.turnsEnabled === true,
+                disabled: contextBusy || contextForm?.enabled !== true,
+                onChange: (event) => updateContextForm({ turnsEnabled: event.target.checked }),
+                style: { flex: 'none' },
+              }),
+              '按对话轮数触发',
+            ),
+            h('input', {
+              type: 'number',
+              min: 1,
+              max: 1000,
+              step: 1,
+              style: { ...S.input, width: 96, flex: 'none' },
+              value: contextForm?.turns ?? 20,
+              disabled: contextBusy || contextForm?.enabled !== true || contextForm?.turnsEnabled !== true,
+              onChange: (event) => updateContextForm({ turns: event.target.value }),
+            }),
+            h('span', { style: S.label }, '轮后压缩'),
+          ),
+          h(
+            'div',
+            { style: { ...S.row, paddingLeft: 22 } },
+            h('span', { style: S.label }, '保留最近上下文'),
+            h(
+              'select',
+              {
+                style: S.select,
+                value: contextForm?.retainMode ?? 'default',
+                disabled: contextBusy || contextForm?.enabled !== true,
+                onChange: (event) => updateContextForm({ retainMode: event.target.value }),
+              },
+              h('option', { value: 'default' }, '默认 15%'),
+              h('option', { value: 'custom' }, '自定义'),
+            ),
+            h('input', {
+              type: 'number',
+              min: 0,
+              max: 50,
+              step: 1,
+              style: { ...S.input, width: 96, flex: 'none' },
+              value: contextForm?.retainPercent ?? 15,
+              disabled: contextBusy || contextForm?.enabled !== true || contextForm?.retainMode !== 'custom',
+              onChange: (event) => updateContextForm({ retainPercent: event.target.value }),
+            }),
+            h('span', { style: S.label }, '% 当前上下文'),
+          ),
+          h(
+            'div',
+            { style: { ...S.row, justifyContent: 'flex-end' } },
+            h(ActionButton, {
+              variant: 'primary',
+              onClick: saveContext,
+              disabled: contextBusy || contextForm === null,
+            }, contextBusy ? '保存中…' : '保存上下文设置'),
+          ),
+          h(
+            'p',
+            { style: S.empty },
+            '触发比例默认 80%，保留比例默认 15%。DSH 会为输出和摘要预留空间，小窗口模型的实际触发点可能早于设定比例。压缩使用当前会话模型，会产生一次额外模型请求；最近一轮始终保留。',
+          ),
+          state !== null && context === null
+            ? h(Banner, { kind: 'warn', text: `上下文管理服务尚未加载${state.contextError ? `：${state.contextError}` : '；请重启 DSH 或检查插件加载日志。'}` })
+            : null,
+          context?.ready === false
+            ? h(Banner, { kind: 'error', text: `上下文压缩不可用：${context.lastError || '宿主未提供 tokenMeter 服务'}` })
+            : null,
+          context?.ready === true && context?.enabled === true && context?.services?.compaction !== true
+            ? h(Banner, { kind: 'notice', text: '压缩服务由当前 agent preset 提供，将在首次 QQ 会话时自动检测。' })
+            : null,
+          context?.enabled === true && context?.percentEnabled !== true && context?.turnsEnabled !== true
+            ? h(Banner, { kind: 'warn', text: '已开启总开关，但没有勾选任何触发条件，QQ 会话不会自动压缩。' })
+            : null,
+          context?.lastError && context?.ready !== false
+            ? h(Banner, { kind: 'warn', text: context.lastError })
+            : null,
+          context?.last
+            ? h(
+                'p',
+                { style: S.mono },
+                `上次压缩：${context.last.at} · ${context.last.compactedTurns} 轮 → 保留 ${context.last.retainedTurns} 轮 · 约 ${context.last.shadowedTokens} tokens`,
+              )
+            : null,
+        ),
+
+        h(PersistentFileCard, {
+          title: '人格 SOUL.md',
+          description: '开启后每轮把 QQ 工作区的 SOUL.md 注入系统提示，用来定义助手的语气、风格、价值观和边界。',
+          fileState: soul,
+          draft: soulDraft,
+          busy: soulBusy,
+          toggleHint: '只在你明确要求时让模型修改人格；关闭不会删除文件。',
+          placeholder: '# SOUL.md\n\n- 语气与风格…\n- 价值观…\n- 行为边界…',
+          onToggle: updateSoulEnabled,
+          onDraft: (value) => {
+            setSoulDraft(value);
+            setNotice('');
+          },
+          onSave: saveSoul,
+          onRefresh: refreshSoul,
+        }),
+
+        h(PersistentFileCard, {
+          title: '长期记忆 MEMORY.md',
+          description: '开启后每轮把 QQ 工作区的 MEMORY.md 注入系统提示；上下文压缩不会清掉它。',
+          fileState: memory,
+          draft: memoryDraft,
+          busy: memoryBusy,
+          toggleHint: '模型会在学到长期偏好、项目背景或重要决定时更新 MEMORY.md；你也可以直接编辑。',
+          placeholder: '# MEMORY.md\n\n- 用户偏好…\n- 项目背景…',
+          onToggle: updateMemoryEnabled,
+          onDraft: (value) => {
+            setMemoryDraft(value);
+            setNotice('');
+          },
+          onSave: saveMemory,
+          onRefresh: refreshMemory,
+        }),
 
         h(
           'div',
