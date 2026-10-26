@@ -10,8 +10,21 @@ import { isAbsolute, join, relative, sep } from 'node:path';
 export const CONTEXT_FILE = 'context.json';
 export const SOUL_FILE = 'SOUL.md';
 export const MEMORY_FILE = 'MEMORY.md';
-export const SOUL_SECTION = 'plugin:qq-soul';
-export const MEMORY_SECTION = 'plugin:qq-memory';
+export const SOUL_SECTION = 'plugin:workspace-soul';
+export const MEMORY_SECTION = 'plugin:workspace-memory';
+// Section names used by earlier versions (this plugin and dsh-prompt-studio).
+// Both plugins now claim the shared names above, so a stale assembly from an old
+// log still collapses to one copy.
+export const LEGACY_MEMORY_SECTIONS = Object.freeze([
+  'plugin:qq-soul',
+  'plugin:qq-memory',
+  'plugin:prompt-studio-soul',
+  'plugin:prompt-studio-memory',
+]);
+// Section headings shared with dsh-prompt-studio. Other memory plugins may inject
+// the same SOUL.md / MEMORY.md under their own section name, so dedupe on both.
+export const SOUL_HEADER = '## Persistent persona (SOUL.md)';
+export const MEMORY_HEADER = '## Long-term memory (MEMORY.md)';
 export const DEFAULT_RETAIN_PERCENT = 15;
 export const MEMORY_PROMPT_CHAR_LIMIT = 12000;
 export const MEMORY_EDIT_CHAR_LIMIT = 60000;
@@ -242,6 +255,7 @@ const FILE_SPECS = {
     setting: 'soulEnabled',
     section: SOUL_SECTION,
     position: 'start',
+    header: SOUL_HEADER,
     build: buildSoulText,
     template: [
       '# SOUL.md · 人格与边界',
@@ -255,6 +269,7 @@ const FILE_SPECS = {
     setting: 'memoryEnabled',
     section: MEMORY_SECTION,
     position: 'end',
+    header: MEMORY_HEADER,
     build: buildMemoryText,
     template: [
       '# MEMORY.md · 长期记忆',
@@ -309,6 +324,14 @@ export class ContextManager {
     }
   }
 
+  /**
+   * The one directory that owns SOUL.md / MEMORY.md.
+   *
+   * The configured QQ workspace is that directory by definition: this plugin
+   * only injects for QQ sessions, and their cwd is the configured path. Both
+   * plugins therefore read and edit the same two files, and the shared section
+   * names (SOUL_SECTION / MEMORY_SECTION) make the assembly keep one copy.
+   */
   workspacePath() {
     const configured = this.configuredWorkspace();
     if (configured === '') return '';
@@ -747,12 +770,27 @@ export class ContextManager {
       }
       contributions.push({
         position: spec.position,
+        header: spec.header,
         section: { name: spec.section, text, interpolate: false },
       });
     }
     if (contributions.length === 0) return assembly;
+    // Headers this plugin is about to inject. Another memory plugin
+    // (dsh-prompt-studio) may already have added the same SOUL.md / MEMORY.md
+    // under its own section name, so drop those copies by header instead of
+    // leaving two identical headers in the prompt. Kinds that stay disabled keep
+    // the other plugin's section untouched.
+    const replacedHeaders = contributions
+      .map((contribution) => contribution.header)
+      .filter((header) => typeof header === 'string' && header !== '');
     const sections = (Array.isArray(assembly.sections) ? assembly.sections : [])
-      .filter((section) => section?.name !== SOUL_SECTION && section?.name !== MEMORY_SECTION);
+      .filter((section) => {
+        if (section?.name === SOUL_SECTION || section?.name === MEMORY_SECTION) return false;
+        if (LEGACY_MEMORY_SECTIONS.includes(section?.name)) return false;
+        if (replacedHeaders.length === 0) return true;
+        const text = String(section?.text ?? '').trimStart();
+        return !replacedHeaders.some((header) => text.startsWith(header));
+      });
     for (const contribution of contributions) {
       if (contribution.position === 'start') sections.unshift(contribution.section);
       else sections.push(contribution.section);

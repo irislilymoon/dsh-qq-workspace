@@ -1,6 +1,6 @@
 {
   "name": "dsh-qq-workspace",
-  "version": "0.2.0",
+  "version": "0.2.1",
   "private": true,
   "description": "QQ bot working directory, workspace grouping, upload routing, context management, long-term memory and a QQ-session security lock for DSH (Desktop and Web)",
   "type": "module",
@@ -21,7 +21,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "test": "node --test test/*.test.mjs"
+    "check": "node --check index.js && node --check client.js && node --check context.js && node --check security.js && node --check qq-commands.js"
   },
   "keywords": [
     "dsh",

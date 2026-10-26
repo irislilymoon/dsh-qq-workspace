@@ -297,6 +297,15 @@ function trustedRequest(ctx, req) {
   if (req.headers[API_HEADER] !== '1') return false;
   const hostUrl = requestHost(req);
   if (hostUrl === null) return false;
+  // The host's own Host/Origin fence is authoritative: it already knows every
+  // authority declared with --trusted-host (including LAN addresses the browser
+  // actually dials). Only fall back to the loopback set when that service is
+  // unavailable or predates isTrusted().
+  const connection = service(ctx, 'connection');
+  if (connection !== null && connection !== undefined && typeof connection.isTrusted === 'function') {
+    if (!connection.isTrusted(req)) return false;
+    return sameOriginOrAbsent(req, hostUrl);
+  }
   const hostname = hostUrl.hostname.toLowerCase().replace(/^\[|\]$/g, '');
   const allowed = new Set(['127.0.0.1', '::1', 'localhost']);
   const addHost = (value) => {
@@ -319,6 +328,11 @@ function trustedRequest(ctx, req) {
   } catch {
   }
   if (!allowed.has(hostname)) return false;
+  return sameOriginOrAbsent(req, hostUrl);
+}
+
+/** Reject cross-site requests and Origins that do not match the request Host. */
+function sameOriginOrAbsent(req, hostUrl) {
   const site = req.headers['sec-fetch-site'];
   if (typeof site === 'string' && site.toLowerCase() === 'cross-site') return false;
   const origin = req.headers.origin;
