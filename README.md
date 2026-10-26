@@ -12,7 +12,7 @@
 - 旧的 QQ 会话会移入 `~/.dsh/qq-workspace/trash/<时间戳>/`，而不是永久删除；其他对话与目录内文件不受影响。
 - QQ 上传的图片/文件会落到工作区的 `qq-uploads/`，模型可以直接用 `read` / `read_image` 处理；设置页可选择长期保留。
 - **上下文管理**：按上下文比例或对话轮数触发压缩，可设置保留最近上下文的比例；只作用于 QQ 工作区会话。
-- **持久化文件**：`SOUL.md`（人格与边界）和 `MEMORY.md`（长期记忆）各有独立开关，默认都关闭；开启后每轮注入系统提示，压缩不会丢失。
+- **持久化文件**：`SOUL.md`（人格与边界）和 `MEMORY.md`（长期记忆）各有独立开关，默认都关闭；开启后每轮注入系统提示，压缩不会丢失。内容归本插件单独管理（固定在 QQ 工作区目录，`dsh-prompt-studio` 不读写它们），只有开关与它联动：QQ 这边打开某个文件会同步打开提示词工坊的全局记忆，QQ 这边关闭不影响它（提示词工坊那边关闭才会关闭这里）。
 - **安全锁**：仅对 QQ Bot 自动创建的会话生效，把模型限制在工作区内部。
 
 ## 安全锁
@@ -127,11 +127,12 @@ D:\Code\dsh-qq-workspace
 - `cordis.patch.yml`：DSH bundle 插入补丁。
 - `test/security.test.mjs`：不依赖 DSH 的安全逻辑测试。
 - `test/context.test.mjs`：上下文触发、轮次选择、SOUL.md / MEMORY.md 注入测试。
+- `test/sync.test.mjs`：与 `dsh-prompt-studio` 的开关联动（`settings.json` 读写与迁移）。
 
 ## 测试
 
 ```bash
-node --test test/*.test.mjs
+npm test
 ```
 
 测试只使用 Node 内置模块和临时目录，不需要安装依赖，也不会读写真实工作区。

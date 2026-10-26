@@ -24,6 +24,9 @@ window.__ModuleLoader__.load({
     }
     const HostButton = primitives?.Button ?? null;
     const ROUTE = '/qq-workspace';
+    // Shared with dsh-prompt-studio's client: both settings panels edit the same
+    // SOUL.md / MEMORY.md, so a save in one panel makes the other reload at once.
+    const MEMORY_EVENT = 'dsh-workspace-memory:changed';
     const uiWorkspaceHolder = { service: null };
 
     const S = {
@@ -201,6 +204,15 @@ window.__ModuleLoader__.load({
 
     const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
 
+    function notifyMemoryChanged() {
+      try {
+        if (typeof window !== 'undefined' && typeof window.dispatchEvent === 'function') {
+          window.dispatchEvent(new Event(MEMORY_EVENT));
+        }
+      } catch {
+      }
+    }
+
     function Banner(props) {
       if (typeof props?.text !== 'string' || props.text === '') return null;
       const style = props.kind === 'error' ? S.error : props.kind === 'warn' ? S.warn : S.notice;
@@ -304,6 +316,17 @@ window.__ModuleLoader__.load({
         void load(false);
       }, [load]);
 
+      React.useEffect(() => {
+        if (typeof window === 'undefined' || typeof window.addEventListener !== 'function') return undefined;
+        const reload = () => void load(true);
+        window.addEventListener(MEMORY_EVENT, reload);
+        window.addEventListener('focus', reload);
+        return () => {
+          window.removeEventListener(MEMORY_EVENT, reload);
+          window.removeEventListener('focus', reload);
+        };
+      }, [load]);
+
       const context = state?.context ?? null;
       const memory = context?.memory ?? null;
       const soul = context?.soul ?? null;
@@ -321,13 +344,25 @@ window.__ModuleLoader__.load({
         });
       }, [context, contextForm]);
 
-      React.useEffect(() => {
-        if (memory !== null && memoryDraft === null) setMemoryDraft(memory.content ?? '');
-      }, [memory, memoryDraft]);
+      // The textareas keep the user's unsaved edits, but they must follow the
+      // file on disk (the other plugin's panel or the model can rewrite it).
+      // A draft that was never edited tracks the server; an edited one stays.
+      const memoryBase = React.useRef('');
+      const soulBase = React.useRef('');
 
       React.useEffect(() => {
-        if (soul !== null && soulDraft === null) setSoulDraft(soul.content ?? '');
-      }, [soul, soulDraft]);
+        if (memory === null) return;
+        const content = memory.content ?? '';
+        setMemoryDraft((previous) => (previous === null || previous === memoryBase.current ? content : previous));
+        memoryBase.current = content;
+      }, [memory]);
+
+      React.useEffect(() => {
+        if (soul === null) return;
+        const content = soul.content ?? '';
+        setSoulDraft((previous) => (previous === null || previous === soulBase.current ? content : previous));
+        soulBase.current = content;
+      }, [soul]);
 
       const pick = async () => {
         setError('');
@@ -446,6 +481,7 @@ window.__ModuleLoader__.load({
           setNotice(enabled ? '长期记忆已开启。' : '长期记忆已关闭；MEMORY.md 不会被删除。');
           setMemoryDraft(null);
           await load(true);
+          notifyMemoryChanged();
         } catch (problem) {
           setError(`设置长期记忆失败：${problem?.message ?? String(problem)}`);
         } finally {
@@ -467,6 +503,7 @@ window.__ModuleLoader__.load({
           setMemoryDraft(next?.content ?? memoryDraft ?? '');
           setNotice('长期记忆已保存。');
           await load(true);
+          notifyMemoryChanged();
         } catch (problem) {
           setError(`保存长期记忆失败：${problem?.message ?? String(problem)}`);
         } finally {
@@ -494,6 +531,7 @@ window.__ModuleLoader__.load({
           setNotice(enabled ? '人格 SOUL.md 已开启。' : '人格 SOUL.md 已关闭；文件不会被删除。');
           setSoulDraft(null);
           await load(true);
+          notifyMemoryChanged();
         } catch (problem) {
           setError(`设置人格 SOUL.md 失败：${problem?.message ?? String(problem)}`);
         } finally {
@@ -515,6 +553,7 @@ window.__ModuleLoader__.load({
           setSoulDraft(next?.content ?? soulDraft ?? '');
           setNotice('人格 SOUL.md 已保存。');
           await load(true);
+          notifyMemoryChanged();
         } catch (problem) {
           setError(`保存人格 SOUL.md 失败：${problem?.message ?? String(problem)}`);
         } finally {

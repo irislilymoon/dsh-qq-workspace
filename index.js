@@ -389,6 +389,44 @@ function writeFileAtomic(path, content) {
   }
 }
 
+const PROMPT_STUDIO_SETTINGS = ['prompt-studio', 'settings.json'];
+const PROMPT_STUDIO_MEMORY_VERSION = 4;
+
+/**
+ * dsh-prompt-studio owns the global memory switch; the switches in this plugin
+ * only cover QQ sessions. Turning one on here turns the global one on too, so
+ * the two panels never disagree about whether memory is active. Turning one off
+ * deliberately does nothing: other sessions keep their memory.
+ *
+ * Returns true when the other plugin's file was rewritten. An absent or unreadable
+ * file means it is not installed, which is not an error here.
+ */
+function enablePromptStudioMemory(home, kind) {
+  const path = join(home, ...PROMPT_STUDIO_SETTINGS);
+  let stored;
+  try {
+    const raw = JSON.parse(readFileSync(path, 'utf8'));
+    if (raw === null || typeof raw !== 'object' || Array.isArray(raw)) return false;
+    stored = raw;
+  } catch {
+    return false;
+  }
+  const files = stored.memoryFiles !== null
+    && typeof stored.memoryFiles === 'object'
+    && !Array.isArray(stored.memoryFiles)
+    ? { soul: stored.memoryFiles.soul === true, memory: stored.memoryFiles.memory === true }
+    : { soul: stored.memory === true, memory: stored.memory === true };
+  if (files[kind] === true) return false;
+  files[kind] = true;
+  stored.memoryFiles = files;
+  stored.memory = true;
+  if (!(Number(stored.version) >= PROMPT_STUDIO_MEMORY_VERSION)) {
+    stored.version = PROMPT_STUDIO_MEMORY_VERSION;
+  }
+  writeFileAtomic(path, `${JSON.stringify(stored, null, 2)}\n`);
+  return true;
+}
+
 function yamlScalar(raw) {
   let value = String(raw ?? '').trim();
   if (value === '') return '';
@@ -1019,6 +1057,21 @@ async function bootstrap(ctx) {
     }
   }
   scheduleCleanup(ctx, 1200);
+  // The global switch follows the QQ switches (the reverse is deliberately not
+  // true), so a start with both plugins installed settles on memory enabled
+  // rather than leaving the two panels disagreeing.
+  try {
+    if (contextManager !== null) {
+      for (const kind of ['soul', 'memory']) {
+        if (contextManager.settings[kind === 'soul' ? 'soulEnabled' : 'memoryEnabled'] === true
+          && enablePromptStudioMemory(dshHome(ctx), kind)) {
+          log(ctx, `[${PLUGIN_NAME}] 启动时已同步提示词工坊的全局记忆开关：${kind}`);
+        }
+      }
+    }
+  } catch (error) {
+    log(ctx, `[${PLUGIN_NAME}] 启动同步提示词工坊记忆开关失败：${error?.message ?? String(error)}`, 'warn');
+  }
 }
 
 async function buildState(ctx) {
@@ -1177,6 +1230,15 @@ async function handleFileSettings(ctx, req, res, kind, setting, label) {
   if (Object.hasOwn(body, 'enabled')) {
     if (typeof body.enabled !== 'boolean') throw httpError(400, 'enabled 必须是布尔值');
     contextManager.configure({ [setting]: body.enabled });
+    if (body.enabled === true) {
+      try {
+        if (enablePromptStudioMemory(dshHome(ctx), kind)) {
+          log(ctx, `[${PLUGIN_NAME}] 已同步提示词工坊的全局记忆开关：${label}`);
+        }
+      } catch (error) {
+        log(ctx, `[${PLUGIN_NAME}] 同步提示词工坊记忆开关失败：${error?.message ?? String(error)}`, 'warn');
+      }
+    }
   }
   if (Object.hasOwn(body, 'content')) {
     if (typeof body.content !== 'string') throw httpError(400, 'content 必须是字符串');
@@ -1383,3 +1445,5 @@ export async function apply(ctx) {
 
   log(ctx, `[${PLUGIN_NAME}] 已加载；安全锁${lock.state().enabled ? '已开启' : '已关闭'}`);
 }
+
+export const __test = { enablePromptStudioMemory };

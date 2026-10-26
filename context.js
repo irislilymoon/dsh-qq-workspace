@@ -14,13 +14,10 @@ export const SOUL_SECTION = 'plugin:workspace-soul';
 export const MEMORY_SECTION = 'plugin:workspace-memory';
 // Section names used by earlier versions (this plugin and dsh-prompt-studio).
 // Both plugins now claim the shared names above, so a stale assembly from an old
-// log still collapses to one copy.
-export const LEGACY_MEMORY_SECTIONS = Object.freeze([
-  'plugin:qq-soul',
-  'plugin:qq-memory',
-  'plugin:prompt-studio-soul',
-  'plugin:prompt-studio-memory',
-]);
+// log still collapses to one copy. Kept per kind: a disabled file must not strip
+// the section the other plugin injected for it.
+export const LEGACY_SOUL_SECTIONS = Object.freeze(['plugin:qq-soul', 'plugin:prompt-studio-soul']);
+export const LEGACY_MEMORY_SECTIONS = Object.freeze(['plugin:qq-memory', 'plugin:prompt-studio-memory']);
 // Section headings shared with dsh-prompt-studio. Other memory plugins may inject
 // the same SOUL.md / MEMORY.md under their own section name, so dedupe on both.
 export const SOUL_HEADER = '## Persistent persona (SOUL.md)';
@@ -254,6 +251,7 @@ const FILE_SPECS = {
     file: SOUL_FILE,
     setting: 'soulEnabled',
     section: SOUL_SECTION,
+    legacySections: LEGACY_SOUL_SECTIONS,
     position: 'start',
     header: SOUL_HEADER,
     build: buildSoulText,
@@ -268,6 +266,7 @@ const FILE_SPECS = {
     file: MEMORY_FILE,
     setting: 'memoryEnabled',
     section: MEMORY_SECTION,
+    legacySections: LEGACY_MEMORY_SECTIONS,
     position: 'end',
     header: MEMORY_HEADER,
     build: buildMemoryText,
@@ -300,6 +299,7 @@ export class ContextManager {
     this.last = null;
     this.lastError = '';
     this.fileErrors = { soul: '', memory: '' };
+    this.settingsStamp = { mtimeMs: -1, size: -1 };
     this.attemptedTurns = new Map();
     this.compacting = new Set();
     this.windowCache = new Map();
@@ -392,20 +392,51 @@ export class ContextManager {
   }
 
   load() {
+    const path = this.settingsPath();
     let data = null;
+    let stamp = { mtimeMs: -1, size: -1 };
     try {
-      data = JSON.parse(readFileSync(this.settingsPath(), 'utf8'));
+      const stat = statSync(path);
+      stamp = { mtimeMs: stat.mtimeMs, size: stat.size };
+      data = JSON.parse(readFileSync(path, 'utf8'));
     } catch {
       data = null;
     }
     this.settings = normalizeSettings(data);
+    this.settingsStamp = stamp;
+  }
+
+  /**
+   * dsh-prompt-studio's global memory switch writes soulEnabled / memoryEnabled
+   * straight into this file. Reload on change instead of answering from the
+   * in-memory copy, which would silently overwrite it on the next save.
+   */
+  refresh() {
+    try {
+      const stat = statSync(this.settingsPath());
+      if (stat.mtimeMs === this.settingsStamp.mtimeMs && stat.size === this.settingsStamp.size) {
+        return false;
+      }
+    } catch {
+      return false;
+    }
+    this.load();
+    return true;
   }
 
   save() {
-    this.deps.writeFileAtomic(this.settingsPath(), `${JSON.stringify(this.settings, null, 2)}\n`);
+    const path = this.settingsPath();
+    this.deps.writeFileAtomic(path, `${JSON.stringify(this.settings, null, 2)}\n`);
+    try {
+      const stat = statSync(path);
+      this.settingsStamp = { mtimeMs: stat.mtimeMs, size: stat.size };
+    } catch {
+      this.settingsStamp = { mtimeMs: -1, size: -1 };
+    }
   }
 
   configure(patch = {}) {
+    this.refresh();
     const next = { ...this.settings };
     if (patch !== null && typeof patch === 'object') {
       for (const [key, value] of Object.entries(patch)) {
@@ -749,6 +780,7 @@ export class ContextManager {
 
   injectFiles(assembly, agent) {
     if (assembly === null || typeof assembly !== 'object') return assembly;
+    this.refresh();
     const session = agent?.session;
     if (session === null || session === undefined || !this.isQQSession(session)) return assembly;
     const contributions = [];
@@ -771,6 +803,7 @@ export class ContextManager {
       contributions.push({
         position: spec.position,
         header: spec.header,
+        legacySections: spec.legacySections,
         section: { name: spec.section, text, interpolate: false },
       });
     }
@@ -783,10 +816,14 @@ export class ContextManager {
     const replacedHeaders = contributions
       .map((contribution) => contribution.header)
       .filter((header) => typeof header === 'string' && header !== '');
+    const replacedNames = new Set();
+    for (const contribution of contributions) {
+      replacedNames.add(contribution.section.name);
+      for (const name of contribution.legacySections ?? []) replacedNames.add(name);
+    }
     const sections = (Array.isArray(assembly.sections) ? assembly.sections : [])
       .filter((section) => {
-        if (section?.name === SOUL_SECTION || section?.name === MEMORY_SECTION) return false;
-        if (LEGACY_MEMORY_SECTIONS.includes(section?.name)) return false;
+        if (replacedNames.has(section?.name)) return false;
         if (replacedHeaders.length === 0) return true;
         const text = String(section?.text ?? '').trimStart();
         return !replacedHeaders.some((header) => text.startsWith(header));
@@ -799,6 +836,7 @@ export class ContextManager {
   }
 
   state() {
+    this.refresh();
     if (!this.ready) this.refreshServices();
     return {
       enabled: this.settings.enabled,

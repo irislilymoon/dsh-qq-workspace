@@ -354,10 +354,10 @@ test('SOUL.md and MEMORY.md have independent templates, writes and injection', a
     { sections: [{ name: 'plugin:prompt-studio', text: 'persona' }], contexts: [], variables: {}, tools: [] },
     agent,
   );
-  assert.equal(injected.sections[0].name, 'plugin:qq-soul');
-  assert.equal(injected.sections.at(-1).name, 'plugin:qq-memory');
-  const soul = injected.sections.find((item) => item.name === 'plugin:qq-soul');
-  const memory = injected.sections.find((item) => item.name === 'plugin:qq-memory');
+  assert.equal(injected.sections[0].name, 'plugin:workspace-soul');
+  assert.equal(injected.sections.at(-1).name, 'plugin:workspace-memory');
+  const soul = injected.sections.find((item) => item.name === 'plugin:workspace-soul');
+  const memory = injected.sections.find((item) => item.name === 'plugin:workspace-memory');
   assert.match(soul.text, /be direct/);
   assert.match(memory.text, /likes tea/);
   assert.equal(memory.text.includes(h.workspace), false);
@@ -366,11 +366,49 @@ test('SOUL.md and MEMORY.md have independent templates, writes and injection', a
 
   h.manager.configure({ soulEnabled: false });
   const memoryOnly = h.manager.injectFiles({ sections: [] }, agent);
-  assert.deepEqual(memoryOnly.sections.map((item) => item.name), ['plugin:qq-memory']);
+  assert.deepEqual(memoryOnly.sections.map((item) => item.name), ['plugin:workspace-memory']);
 
   h.manager.configure({ memoryEnabled: false });
   const none = h.manager.injectFiles({ sections: [] }, agent);
   assert.equal(none.sections.length, 0);
+});
+
+test('a disabled file leaves the section dsh-prompt-studio injected untouched', async (t) => {
+  const h = managerHarness(t);
+  h.manager.install();
+  h.manager.configure({ soulEnabled: true, memoryEnabled: true });
+  const agent = qqAgent(h.workspace);
+  const assembly = {
+    sections: [
+      { name: 'plugin:workspace-soul', text: '## Persistent persona (SOUL.md)\nfrom prompt-studio' },
+      { name: 'plugin:workspace-memory', text: '## Long-term memory (MEMORY.md)\nfrom prompt-studio' },
+      { name: 'harness:identity', text: 'identity' },
+    ],
+  };
+  h.manager.configure({ soulEnabled: false });
+  const out = h.manager.injectFiles(assembly, agent);
+  // QQ's own SOUL section is off, so the copy dsh-prompt-studio added survives;
+  // MEMORY.md is on, so QQ's section replaces the other plugin's copy.
+  assert.deepEqual(out.sections.map((section) => section.name), [
+    'plugin:workspace-soul',
+    'harness:identity',
+    'plugin:workspace-memory',
+  ]);
+  assert.match(out.sections[0].text, /from prompt-studio/);
+  assert.match(out.sections[2].text, /This QQ workspace has a persistent long-term memory/);
+});
+
+test('settings reloaded from disk when another plugin writes them', async (t) => {
+  const h = managerHarness(t);
+  h.manager.install();
+  h.manager.configure({ soulEnabled: false, memoryEnabled: false });
+  const path = join(h.home, 'qq-workspace', 'context.json');
+  mkdirSync(dirname(path), { recursive: true });
+  // Different size as well as mtime, so Windows' coarse timestamps cannot hide
+  // the change from the reload check.
+  writeFileSync(path, `${JSON.stringify({ version: 1, soulEnabled: true, memoryEnabled: true }, null, 2)}\n`);
+  assert.equal(h.manager.state().soul.enabled, true);
+  assert.equal(h.manager.state().memory.enabled, true);
 });
 
 test('context settings persist as JSON', async (t) => {
